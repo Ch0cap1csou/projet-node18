@@ -1,19 +1,18 @@
-# Dockerfile
-FROM node:18-alpine
-
-WORKDIR /usr/src/app
-
-# Copie les fichiers de dépendances
+FROM node:18-alpine AS builder
+WORKDIR /app
 COPY package*.json ./
+RUN npm ci
 
-# Installation des dépendances
-RUN npm ci --only=production
-
-# Copie du code source
+FROM node:18-alpine AS production
+WORKDIR /app
+COPY package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
 COPY . .
 
-# Expose le port (ajustez selon votre application)
-EXPOSE 3000
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
+    chown -R nodejs:nodejs /app
+USER nodejs
 
-# Commande de démarrage
+EXPOSE 3000
 CMD ["npm", "start"]
