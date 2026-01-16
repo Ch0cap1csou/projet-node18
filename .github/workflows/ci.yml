@@ -1,4 +1,4 @@
-name: CI/CD - Node.js 18 to Docker Hub + Trivy
+name: CI/CD - Node.js 18 to Docker Hub
 
 on:
   push:
@@ -7,9 +7,28 @@ on:
     branches: ["main"]
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
   build-and-push:
     runs-on: ubuntu-latest
-    
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -19,11 +38,12 @@ jobs:
 
       - name: Define Docker image name
         run: |
-          USERNAME="${{ secrets.DOCKER_USERNAME }}"
-          if [ -z "$USERNAME" ]; then
-            USERNAME="defaultuser"
+          # Nettoyage username
+          CLEAN_USERNAME=$(echo "${{ secrets.DOCKER_USERNAME }}" | tr -d '/ ')
+          if [ -z "$CLEAN_USERNAME" ]; then
+            CLEAN_USERNAME="defaultuser"
           fi
-          IMAGE_NAME="$USERNAME/myapp"
+          IMAGE_NAME="$CLEAN_USERNAME/myapp"
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "Docker image: $IMAGE_NAME"
 
@@ -37,23 +57,22 @@ jobs:
         run: |
           echo "🏗️  Building: $IMAGE_NAME"
           docker build -t $IMAGE_NAME:latest -t $IMAGE_NAME:${{ github.sha }} .
-          echo "📤 Pushing to Docker Hub..."
           docker push $IMAGE_NAME:latest
           docker push $IMAGE_NAME:${{ github.sha }}
           echo "🎉 SUCCÈS !"
           echo "URL: https://hub.docker.com/r/$IMAGE_NAME"
 
-  trivy-scan:
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+trivy-scan:
+  runs-on: ubuntu-latest
+  needs: build-and-push
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Scan Docker image with Trivy
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.IMAGE_NAME }}:latest
-          format: table
-          exit-code: 1
-          severity: HIGH,CRITICAL
+    - name: Scan Docker image with Trivy
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ secrets.DOCKER_USERNAME }}/myapp:latest
+        format: table
+        exit-code: 1
+        severity: HIGH,CRITICAL
