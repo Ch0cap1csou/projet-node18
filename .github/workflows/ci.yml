@@ -1,38 +1,22 @@
-name: CI - Node 18 + Docker Hub
+FROM node:18-alpine AS builder
 
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+FROM node:18-alpine AS production
+WORKDIR /app
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+# Copie uniquement les fichiers nécessaires pour la production
+COPY package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY . .
 
-      - name: Setup Node.js 18
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
+# Crée un utilisateur non-root pour plus de sécurité
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
+    chown -R nodejs:nodejs /app
+USER nodejs
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm test
-
-      - name: Build Docker image
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/myapp:latest .
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Push image to Docker Hub
-        run: docker push ${{ secrets.DOCKER_USERNAME }}/myapp:latest
+EXPOSE 3000
+CMD ["npm", "start"]
