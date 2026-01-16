@@ -34,6 +34,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Debug - Afficher l'environnement
+        run: |
+          echo "🔍 DEBUG - Informations:"
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "SHA: ${{ github.sha }}"
+          echo "Username défini: ${{ secrets.DOCKER_USERNAME != '' }}"
+          echo "Password défini: ${{ secrets.DOCKER_PASSWORD != '' }}"
+          echo ""
+          echo "📁 Fichiers présents:"
+          ls -la
+          echo ""
+          echo "🐋 Vérification Dockerfile:"
+          cat Dockerfile || echo "❌ Aucun Dockerfile trouvé!"
+
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -43,12 +58,33 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push Docker image
+      - name: Debug - Tester la connexion
         run: |
+          echo "🔐 Test de connexion Docker Hub..."
+          # Test simple sans exposer le password
+          if docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin <<< "${{ secrets.DOCKER_PASSWORD }}" 2>/dev/null; then
+            echo "✅ Connexion Docker Hub réussie!"
+            docker logout
+          else
+            echo "❌ Échec connexion Docker Hub"
+            echo "Vérifiez:"
+            echo "1. Username: ${{ secrets.DOCKER_USERNAME }}"
+            echo "2. Token valide (pas mot de passe)"
+            echo "3. Token avec permissions 'Read, Write, Delete'"
+          fi
+
+      - name: Build Docker image
+        run: |
+          echo "🏗️  Construction de l'image..."
           docker build \
             -t ${{ secrets.DOCKER_USERNAME }}/myapp:latest \
             -t ${{ secrets.DOCKER_USERNAME }}/myapp:${{ github.sha }} \
             .
-          
+          echo "✅ Build réussi!"
+
+      - name: Push image to Docker Hub
+        run: |
+          echo "📤 Pushing images to Docker Hub..."
           docker push ${{ secrets.DOCKER_USERNAME }}/myapp:latest
           docker push ${{ secrets.DOCKER_USERNAME }}/myapp:${{ github.sha }}
+          echo "🎉 Images poussées avec succès!"
