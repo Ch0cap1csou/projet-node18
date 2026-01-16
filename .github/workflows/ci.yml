@@ -28,63 +28,74 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # SUPPRIMEZ la condition 'if' temporairement pour debug
+    # if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Debug - Afficher l'environnement
-        run: |
-          echo "🔍 DEBUG - Informations:"
-          echo "Event: ${{ github.event_name }}"
-          echo "Ref: ${{ github.ref }}"
-          echo "SHA: ${{ github.sha }}"
-          echo "Username défini: ${{ secrets.DOCKER_USERNAME != '' }}"
-          echo "Password défini: ${{ secrets.DOCKER_PASSWORD != '' }}"
-          echo ""
-          echo "📁 Fichiers présents:"
-          ls -la
-          echo ""
-          echo "🐋 Vérification Dockerfile:"
-          cat Dockerfile || echo "❌ Aucun Dockerfile trouvé!"
-
-      - name: Setup Docker Buildx
+      - name: DEBUG 1 - Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
+        continue-on-error: true
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Debug - Tester la connexion
+      - name: DEBUG 2 - Test des secrets
         run: |
-          echo "🔐 Test de connexion Docker Hub..."
-          # Test simple sans exposer le password
-          if docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin <<< "${{ secrets.DOCKER_PASSWORD }}" 2>/dev/null; then
-            echo "✅ Connexion Docker Hub réussie!"
+          echo "=== TEST DES SECRETS ==="
+          echo "Username length: ${#DOCKER_USERNAME}"
+          echo "Password length: ${#DOCKER_PASSWORD}"
+          
+          # Test format token Docker
+          if [[ "$DOCKER_PASSWORD" == dckr_pat_* ]]; then
+            echo "✅ Token format Docker valide"
+          else
+            echo "❌ Mauvais format token (doit commencer par dckr_pat_)"
+          fi
+          
+          # Montre 4 premières lettres du username
+          echo "Username (début): ${DOCKER_USERNAME:0:4}***"
+
+      - name: DEBUG 3 - Test login SIMPLE
+        run: |
+          echo "=== TEST LOGIN SIMPLE ==="
+          # Écrit le token dans un fichier temporaire
+          echo "$DOCKER_PASSWORD" > /tmp/docker_token
+          
+          # Essaye de login
+          docker login -u "$DOCKER_USERNAME" --password-stdin < /tmp/docker_token 2>&1 | tee /tmp/login.log
+          
+          LOGIN_EXIT_CODE=$?
+          echo "Code de sortie login: $LOGIN_EXIT_CODE"
+          
+          if [ $LOGIN_EXIT_CODE -eq 0 ]; then
+            echo "✅ LOGIN RÉUSSI!"
             docker logout
           else
-            echo "❌ Échec connexion Docker Hub"
-            echo "Vérifiez:"
-            echo "1. Username: ${{ secrets.DOCKER_USERNAME }}"
-            echo "2. Token valide (pas mot de passe)"
-            echo "3. Token avec permissions 'Read, Write, Delete'"
+            echo "❌ LOGIN ÉCHOUÉ"
+            echo "--- Dernières lignes d'erreur ---"
+            tail -20 /tmp/login.log
           fi
+          
+          # Nettoie
+          rm -f /tmp/docker_token /tmp/login.log
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build Docker image
+      - name: DEBUG 4 - Test build SANS push
         run: |
-          echo "🏗️  Construction de l'image..."
-          docker build \
-            -t ${{ secrets.DOCKER_USERNAME }}/myapp:latest \
-            -t ${{ secrets.DOCKER_USERNAME }}/myapp:${{ github.sha }} \
-            .
-          echo "✅ Build réussi!"
-
-      - name: Push image to Docker Hub
-        run: |
-          echo "📤 Pushing images to Docker Hub..."
-          docker push ${{ secrets.DOCKER_USERNAME }}/myapp:latest
-          docker push ${{ secrets.DOCKER_USERNAME }}/myapp:${{ github.sha }}
-          echo "🎉 Images poussées avec succès!"
+          echo "=== TEST BUILD SANS PUSH ==="
+          echo "Fichier Dockerfile présent: $(ls -la Dockerfile 2>/dev/null && echo 'OUI' || echo 'NON')"
+          
+          # Test build simple
+          docker build -t local-test:debug . 2>&1 | tail -30
+          
+          BUILD_EXIT_CODE=$?
+          echo "Code de sortie build: $BUILD_EXIT_CODE"
+          
+          if [ $BUILD_EXIT_CODE -eq 0 ]; then
+            echo "✅ BUILD RÉUSSI!"
+            docker rmi local-test:debug 2>/dev/null || true
+          else
+            echo "❌ BUILD ÉCHOUÉ"
+          fi
