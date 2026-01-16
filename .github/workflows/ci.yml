@@ -37,24 +37,16 @@ jobs:
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Debug - Vérifier username
+      - name: Define Docker image name
         run: |
-          echo "🔍 Vérification username Docker Hub..."
-          USERNAME="${{ secrets.DOCKER_USERNAME }}"
-          echo "Username utilisé: '$USERNAME'"
-          
-          # Nettoyer les espaces/slash
-          CLEAN_USERNAME=$(echo "$USERNAME" | tr -d '/ ')
-          echo "Username nettoyé: '$CLEAN_USERNAME'"
-          
-          if [ "$USERNAME" != "$CLEAN_USERNAME" ]; then
-            echo "⚠️  Attention: username nettoyé de caractères invalides"
+          # Nettoyage username
+          CLEAN_USERNAME=$(echo "${{ secrets.DOCKER_USERNAME }}" | tr -d '/ ')
+          if [ -z "$CLEAN_USERNAME" ]; then
+            CLEAN_USERNAME="defaultuser"
           fi
-          
-          # Définir pour les étapes suivantes
-          echo "IMAGE_NAME=${CLEAN_USERNAME}/myapp" >> $GITHUB_ENV
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          IMAGE_NAME="$CLEAN_USERNAME/myapp"
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "Docker image: $IMAGE_NAME"
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -65,25 +57,15 @@ jobs:
       - name: Build and push Docker image
         run: |
           echo "🏗️  Building: $IMAGE_NAME"
-          
-          # Construction
-          docker build \
-            -t $IMAGE_NAME:latest \
-            -t $IMAGE_NAME:${{ github.sha }} \
-            .
-          
-          # Push
-          echo "📤 Pushing to Docker Hub..."
+          docker build -t $IMAGE_NAME:latest -t $IMAGE_NAME:${{ github.sha }} .
           docker push $IMAGE_NAME:latest
           docker push $IMAGE_NAME:${{ github.sha }}
-          
           echo "🎉 SUCCÈS !"
           echo "URL: https://hub.docker.com/r/$IMAGE_NAME"
 
-
-           trivy-scan:
+  trivy-scan:
     runs-on: ubuntu-latest
-    needs: build-and-push  # s'exécute après le job build
+    needs: build-and-push
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -93,5 +75,5 @@ jobs:
         with:
           image-ref: ${{ secrets.DOCKER_USERNAME }}/myapp:latest
           format: table
-          exit-code: 1         # pipeline échoue si vulnérabilités HIGH/CRITICAL
+          exit-code: 1
           severity: HIGH,CRITICAL
